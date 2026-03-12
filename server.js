@@ -9,24 +9,28 @@ app.use(express.json());
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ddrhpjiaotwtblnlqytw.supabase.co';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRkcmhwamlhb3R3dGJsbmxxeXR3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Mjc1MjQyMywiZXhwIjoyMDg4MzI4NDIzfQ._6sPEpJvythGOE8sjM-8m936s4pp96txN7Ze1XBd-yU';
 
-// Mailjet SMTP (hardcoded keys - Render free tier allows this)
+// Mailjet SMTP
 const transporter = nodemailer.createTransport({
   host: 'in-v3.mailjet.com',
   port: 587,
   secure: false,
   auth: {
-    user: 'b1b8f689b6910d9e70a94e49e4780183',  // Your API_KEY
-    pass: '52cf14133f0477a156fd8b0f74908676'   // Your SECRET_KEY
+    user: 'b1b8f689b6910d9e70a94e49e4780183',
+    pass: '52cf14133f0477a156fd8b0f74908676'
   }
 });
 
 app.get('/', (req, res) => {
-  res.json({ status: 'HIM.clothiers SMTP Mailjet LIVE' });
+  res.json({ status: 'HIM.clothiers SMTP Mailjet LIVE', timestamp: new Date().toISOString() });
 });
 
 app.post('/send-otp', async (req, res) => {
   try {
     const { email, otp } = req.body;
+    
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, error: 'Email and OTP required' });
+    }
     
     await transporter.sendMail({
       from: '"HIM.clothiers" <macaulayroyal17@gmail.com>',
@@ -49,27 +53,45 @@ app.post('/send-otp', async (req, res) => {
   }
 });
 
-// Your existing /create-user endpoint
+// FIXED: Proper user creation with correct error handling
 app.post('/create-user', async (req, res) => {
   try {
     const { email, password, phone, avatar_url } = req.body;
     
-    // Delete existing user if any
-    try {
-      await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+    if (!email || !password) {
+      return res.status(400).json({ success: false, error: 'Email and password required' });
+    }
+
+    // Check if user exists first (get user by email)
+    const listUsersResponse = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+        'apikey': SUPABASE_SERVICE_KEY,
+      }
+    });
+    
+    const users = await listUsersResponse.json();
+    const existingUser = users.users?.find(u => u.email === email);
+    
+    // If user exists, delete them first
+    if (existingUser) {
+      console.log('Deleting existing user:', existingUser.id);
+      const deleteResponse = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${existingUser.id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
           'apikey': SUPABASE_SERVICE_KEY,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ email })
+        }
       });
-    } catch (e) {
-      console.log('No existing user');
+      
+      if (!deleteResponse.ok) {
+        console.error('Failed to delete existing user:', await deleteResponse.text());
+      }
     }
     
-    const response = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+    // Create new user
+    const createResponse = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -80,20 +102,36 @@ app.post('/create-user', async (req, res) => {
         email,
         password,
         email_confirm: true,
-        user_metadata: { phone: phone || '', avatar_url: avatar_url || '' }
+        user_metadata: { 
+          phone: phone || '', 
+          avatar_url: avatar_url || '' 
+        }
       })
     });
     
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.message || 'Failed to create user');
+    const data = await createResponse.json();
     
-    res.json({ success: true, user: { id: data.user.id, email: data.user.email } });
+    if (!createResponse.ok) {
+      throw new Error(data.message || JSON.stringify(data));
+    }
+    
+    res.json({ 
+      success: true, 
+      user: { 
+        id: data.user.id, 
+        email: data.user.email,
+        avatar_url: data.user.user_metadata?.avatar_url || ''
+      } 
+    });
+    
   } catch (error) {
+    console.error('Create user error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`API on port ${port}`);
+  console.log(`API running on port ${port}`);
+  console.log(`Supabase URL: ${SUPABASE_URL}`);
 });
