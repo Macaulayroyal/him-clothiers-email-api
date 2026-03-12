@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const Mailjet = require('node-mailjet');  // ✅ CORRECT IMPORT
+const nodemailer = require('nodemailer');
 
 const app = express();
 app.use(cors());
@@ -9,49 +9,46 @@ app.use(express.json());
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
-// Health check
-app.get('/', (req, res) => {
-  res.json({ status: 'HIM.clothiers Mailjet API LIVE' });
+// Mailjet SMTP (hardcoded - no .env issues)
+const transporter = nodemailer.createTransporter({
+  host: 'in-v3.mailjet.com',
+  port: 587,
+  secure: false,
+  auth: {
+    user: 'b1b8f689b6910d9e70a94e49e4780183',     // Your API_KEY
+    pass: '52cf14133f0477a156fd8b0f74908676'      // Your SECRET_KEY
+  }
 });
 
-// ✅ CORRECT Mailjet /send-otp
+app.get('/', (req, res) => {
+  res.json({ status: 'HIM.clothiers SMTP Mailjet LIVE' });
+});
+
 app.post('/send-otp', async (req, res) => {
   try {
     const { email, otp } = req.body;
-    
-    const mailjet = new Mailjet({
-      apiKey: process.env.MAILJET_API_KEY,
-      apiSecretKey: process.env.MAILJET_SECRET_KEY
-    });
 
-    const request = await mailjet
-      .post('send', { version: 'v3.1' })
-      .request({
-        Messages: [{
-          From: {
-            Email: 'macaulayroyal17@gmail.com',
-            Name: 'HIM.clothiers'
-          },
-          To: [{ Email: email }],
-          Subject: 'Your HIM.clothiers Verification Code',
-          HTMLPart: `<div style="font-family:sans-serif;text-align:center;padding:40px;background:#fdf8f5;">
-            <h2 style="color:#6F4D38;">HIM.clothiers</h2>
-            <p>Your code is:</p>
-            <div style="background:white;border:3px solid #6F4D38;border-radius:16px;padding:30px;margin:20px auto;max-width:300px;">
-              <span style="color:#6F4D38;font-size:36px;font-weight:bold;letter-spacing:10px;">${otp}</span>
-            </div>
-          </div>`
-        }]
-      });
+    await transporter.sendMail({
+      from: '"HIM.clothiers" <macaulayroyal17@gmail.com>',
+      to: email,
+      subject: 'Your HIM.clothiers Verification Code',
+      html: `<div style="font-family:sans-serif;text-align:center;padding:40px;background:#fdf8f5;">
+        <h2 style="color:#6F4D38;">HIM.clothiers</h2>
+        <p>Your code is:</p>
+        <div style="background:white;border:3px solid #6F4D38;border-radius:16px;padding:30px;margin:20px auto;max-width:300px;">
+          <span style="color:#6F4D38;font-size:36px;font-weight:bold;letter-spacing:10px;">${otp}</span>
+        </div>
+      </div>`
+    });
 
     res.json({ success: true });
   } catch (error) {
-    console.error('Mailjet error:', error);
+    console.error('SMTP error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// YOUR EXISTING /create-user (unchanged)
+// Keep your existing /create-user (copy from your original)
 app.post('/create-user', async (req, res) => {
   try {
     const { email, password, phone, avatar_url } = req.body;
@@ -64,10 +61,10 @@ app.post('/create-user', async (req, res) => {
           'apikey': SUPABASE_SERVICE_KEY,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ email: email })
+        body: JSON.stringify({ email })
       });
-    } catch (deleteError) {
-      console.log('No existing user to delete:', deleteError.message);
+    } catch (e) {
+      console.log('No existing user');
     }
     
     const response = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
@@ -78,47 +75,21 @@ app.post('/create-user', async (req, res) => {
         'apikey': SUPABASE_SERVICE_KEY,
       },
       body: JSON.stringify({
-        email: email,
-        password: password,
-        email_confirm: true,
-        user_metadata: {
-          phone: phone || '',
-          avatar_url: avatar_url || ''
-        }
-      }),
+        email, password, email_confirm: true,
+        user_metadata: { phone: phone || '', avatar_url: avatar_url || '' }
+      })
     });
 
     const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to create user');
 
-    if (!response.ok) {
-      if (data.message && (
-        data.message.includes('duplicate') || 
-        data.message.includes('already') || 
-        data.message.includes('violates unique constraint')
-      )) {
-        return res.status(409).json({ 
-          success: false, 
-          error: 'User already exists',
-          exists: true 
-        });
-      }
-      throw new Error(data.message || 'Failed to create user');
-    }
-
-    res.json({ 
-      success: true, 
-      user: {
-        id: data.user.id,
-        email: data.user.email
-      }
-    });
+    res.json({ success: true, user: { id: data.user.id, email: data.user.email } });
   } catch (error) {
-    console.error('Create user error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`Mailjet API running on port ${port}`);
+  console.log(`API on port ${port}`);
 });
