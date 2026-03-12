@@ -30,7 +30,7 @@ app.post('/send-otp', async (req, res) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'macaulayroyal17@gmail.com',
+        from: 'noreply@resend.dev',
         to: email,
         subject: 'Your HIM.clothiers Verification Code',
         html: `
