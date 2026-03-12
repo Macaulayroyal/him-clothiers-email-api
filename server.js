@@ -27,7 +27,7 @@ app.post('/send-otp', async (req, res) => {
         'Authorization': `Bearer ${RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: 'HIM.clothiers <onboarding@resend.dev>',
+        from: 'HIM.clothiers <macaulayroyal17@gmail.com>',
         to: email,
         subject: 'Your Verification Code',
         html: `
@@ -54,12 +54,30 @@ app.post('/send-otp', async (req, res) => {
   }
 });
 
-// 🔥 NEW: Create user directly with admin privileges
+// 🔥 FIXED: Create user with ghost record cleanup + perfect error handling
 app.post('/create-user', async (req, res) => {
   try {
     const { email, password, phone, avatar_url } = req.body;
-
-    // Call Supabase Auth Admin API to create user
+    
+    // STEP 1: Delete any existing/partial records (ghost cleanup)
+    try {
+      await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+          'apikey': SUPABASE_SERVICE_KEY,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: email
+        })
+      });
+    } catch (deleteError) {
+      // Ignore delete errors - user might not exist
+      console.log('No existing user to delete:', deleteError.message);
+    }
+    
+    // STEP 2: Create fresh user
     const response = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
       method: 'POST',
       headers: {
@@ -80,9 +98,13 @@ app.post('/create-user', async (req, res) => {
 
     const data = await response.json();
 
+    // PERFECT ERROR HANDLING
     if (!response.ok) {
-      // If user already exists, return that info
-      if (data.message && data.message.includes('already')) {
+      if (data.message && (
+        data.message.includes('duplicate') || 
+        data.message.includes('already') || 
+        data.message.includes('violates unique constraint')
+      )) {
         return res.status(409).json({ 
           success: false, 
           error: 'User already exists',
@@ -95,8 +117,8 @@ app.post('/create-user', async (req, res) => {
     res.json({ 
       success: true, 
       user: {
-        id: data.id,
-        email: data.email
+        id: data.user.id,
+        email: data.user.email
       }
     });
 
